@@ -1,0 +1,9 @@
+rm fds_impi_intel_linux_nc
+
+# Local compile:
+FFLAGS="$FFLAGS -fpp -g -warn all  -diag-enable remark"  FCOMPL="ifort" obj="fds" make  -j 8 impi_intel_linux_uc
+
+# NESI compile: 
+#module load intel/2022a
+#module load netCDF-Fortran/4.6.0-iimpi-2022a
+#FFLAGS="$FFLAGS -fPIC -fpp" FCOMPL="ifort" obj="fds" make  -j 8 impi_intel_linux_nesi

@@ -13,10 +13,13 @@ VPATH = ../Source
 
 # set compiler type
 
-I_IFORT=ifort
+I_IFORT=ifx
 ifdef INTEL_IFORT
    I_IFORT=$(INTEL_IFORT)
 endif
+
+NETCDF_LIB= -I/usr/local/netcdf-ifort/4.6.1/include -I/usr/local/netcdf-ifort/4.6.1/include -L/usr/local/netcdf-ifort/4.6.1/lib -lnetcdff -L/usr/lib -I/usr/include: -lnetcdf -lnetcdf -lm 
+
 
 ifeq ($(shell echo "check_quotes"),"check_quotes")
 # windows
@@ -215,6 +218,21 @@ impi_intel_linux : FCOMPL = mpiifort
 impi_intel_linux : obj = fds_impi_intel_linux
 impi_intel_linux : setup $(obj_mpi)
 	$(FCOMPL) $(FFLAGS) -o $(obj) $(obj_mpi) $(LFLAGSMKL)
+
+impi_intel_linux_uc : FFLAGS = -m64 -fc=$(I_IFORT) -O2 -cpp -ipo -no-wrap-margin $(GITINFO) $(INTELMPI_COMPINFO) $(FFLAGSMKL_INTEL) -DUSE_IFPORT  $(NETCDF_LIB)
+impi_intel_linux_uc : LFLAGSMKL = $(LFLAGSMKL_INTEL)  
+impi_intel_linux_uc : FCOMPL = mpiifort
+impi_intel_linux_uc : obj = fds_impi_intel_linux_nc
+impi_intel_linux_uc : setup $(obj_mpi)
+	$(FCOMPL) $(FFLAGS) -o $(obj) $(obj_mpi) $(LFLAGSMKL)  
+
+impi_intel_linux_nesi : FFLAGS = -m64 -O2 -ipo -no-wrap-margin $(GITINFO) $(INTELMPI_COMPINFO) $(FFLAGSMKL_INTEL) -DUSE_IFPORT
+impi_intel_linux_nesi : LFLAGSMKL = $(LFLAGSMKL_INTEL) -L/$EBROOTNETCDFMINFORTRAN/lib/ -I/$EBROOTNETCDFMINFORTRAN/include -lnetcdf -lnetcdff 
+impi_intel_linux_nesi : FCOMPL = mpiifort
+impi_intel_linux_nesi : obj = fds_impi_intel_linux_nc
+impi_intel_linux_nesi : setup $(obj_mpi)
+	$(FCOMPL) $(FFLAGS) -o $(obj) $(obj_mpi) $(LFLAGSMKL)
+
 
 impi_intel_linux_openmp : FFLAGS = -m64 -fc=$(I_IFORT) -O2 -ipo -no-wrap-margin $(GITINFO) $(FFLAGSMKL_INTEL) -DUSE_IFPORT
 impi_intel_linux_openmp : LFLAGSMKL = $(LFLAGSMKL_INTEL_OPENMP)

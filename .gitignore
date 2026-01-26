@@ -2,6 +2,11 @@
 .DS_Store
 ._*
 
+#netcdf files
+*.nc
+fds_impi_intel_linux*
+
+
 # alias file
 *make.bat
 .vs
