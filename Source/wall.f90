@@ -1,4 +1,5 @@
 !> \brief Collection of routines to compute boundary conditions
+#include 'keys.h'
 
 MODULE WALL_ROUTINES
 
@@ -54,10 +55,15 @@ CALL POINT_TO_MESH(NM)
 
 ! Compute the temperature TMP_F at all boundary cells, including PYROLYSIS and 1-D heat transfer
 
+#ifdef coupled_debug
+Print*, 'Wall - thermal BC', NM
+#endif
 CALL THERMAL_BC(T,NM)
 
 ! Compute rho*D at WALL cells
-
+#ifdef coupled_debug
+Print*, 'Wall - dissufivity BC', NM
+#endif
 CALL DIFFUSIVITY_BC
 
 ! Special boundary routines
@@ -65,12 +71,19 @@ IF (DEPOSITION .AND. .NOT.INITIALIZATION_PHASE) CALL DEPOSITION_BC(DT,NM)
 IF (HVAC_SOLVE .AND. .NOT.INITIALIZATION_PHASE) CALL HVAC_BC
 
 ! Compute the species mass fractions, ZZ_F, at all boundary cells
-
+#ifdef coupled_debug
+Print*, 'Wall - species BC', NM
+#endif
 CALL SPECIES_BC(T,DT,NM)
 
 ! Compute the density, RHO_F, at WALL cells only
-
+#ifdef coupled_debug
+Print*, 'Wall - density BC', NM
+#endif
 CALL DENSITY_BC
+#ifdef coupled_debug
+Print*, 'Wall - end BC', NM
+#endif
 
 T_USED(6)=T_USED(6)+CURRENT_TIME()-TNOW
 END SUBROUTINE WALL_BC
@@ -314,11 +327,39 @@ METHOD_OF_HEAT_TRANSFER: SELECT CASE(SF%THERMAL_BC_INDEX)
       IF (UN>TWO_EPSILON_EB) THEN  ! Assume the flow is coming into the domain
          B1%TMP_F = TMP_0(KK)
          IF (WC%VENT_INDEX>0) THEN
-            VT => VENTS(WC%VENT_INDEX)
+            VT => VENTS(WC%VENT_INDEX) 
+#ifdef coupled_debug             
+             !print*, 'inside wall?? 5' , COUPLED_ATM_BOUNDARY
+#endif             
+#if defined atm_variables    
+             IF (VT%N_EDDY<0) THEN     
+               TSI = T - T_BEGIN   
+               SELECT CASE(IOR) 
+                CASE(2) !SOUTH BC  
+# ifdef coupled_debug                
+                 print*, 'using t_atm in wall 6'                                                                                 
+# endif                 
+                 B1%TMP_F = VT%TS_ATM(II,KK)     
+                CASE(-2) !N BC  
+                 B1%TMP_F = VT%TN_ATM(II,KK)  
+                CASE(1) ! WEST
+                !print*, 'west temp', JJ,KK,  VT%TW_ATM(JJ,KK) 
+                  B1%TMP_F = VT%TW_ATM(JJ,KK)    
+                CASE (-1) !EAST 
+                  B1%TMP_F = VT%TE_ATM(JJ,KK) 
+                CASE(-3) !ROOF
+                  B1%TMP_F = VT%TT_ATM(II,JJ) 
+                  
+               END SELECT
+            ELSE
+#endif            
             IF (VT%TMP_EXTERIOR>0._EB) THEN
                TSI = T - T_BEGIN
                B1%TMP_F = TMP_0(KK) + EVALUATE_RAMP(TSI,VT%TMP_EXTERIOR_RAMP_INDEX)*(VT%TMP_EXTERIOR-TMP_0(KK))
             ENDIF
+#if defined  atm_variables          
+            ENDIF
+#endif            
          ENDIF
          B1%ZZ_F(1:N_TRACKED_SPECIES)=SPECIES_MIXTURE(1:N_TRACKED_SPECIES)%ZZ0
       ELSE

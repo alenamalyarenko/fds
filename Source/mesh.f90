@@ -1,5 +1,5 @@
 !> \brief Variables that are defined on each mesh.
-
+#include 'keys.h'
 MODULE MESH_VARIABLES
 
 USE PRECISION_PARAMETERS
@@ -126,6 +126,10 @@ TYPE MESH_TYPE
    INTEGER, ALLOCATABLE, DIMENSION(:,:,:) :: IBLK
    TYPE(STORAGE_TYPE) :: WALL_STORAGE,CFACE_STORAGE
 
+!#if defined output_nc
+!   REAL(FB), ALLOCATABLE, DIMENSION(:,:,:,:) :: QQf
+!#endif
+
    REAL(EB) :: CFL,DIVMX,DIVMN,VN,RESMAX,PART_UVWMAX=0._EB
    INTEGER  :: ICFL,JCFL,KCFL,IMX,JMX,KMX,IMN,JMN,KMN, I_VN,J_VN,K_VN,IRM,JRM,KRM, DT_RESTRICT_COUNT=0,DT_RESTRICT_STORE=0
    LOGICAL  :: CLIP_RHOMIN=.FALSE.,CLIP_RHOMAX=.FALSE.
@@ -146,6 +150,14 @@ TYPE MESH_TYPE
    INTEGER :: N_NEIGHBORING_MESHES !< Number of meshing abutting the current one
    INTEGER, ALLOCATABLE, DIMENSION(:) :: NEIGHBORING_MESH  !< Array listing the indices of neighboring meshes
    INTEGER, ALLOCATABLE, DIMENSION(:) :: RGB               !< Color indices of the mesh for Smokeview
+#if defined global_mesh
+   INTEGER :: MI, MJ, MK
+   INTEGER :: GI1, GI2, GJ1, GJ2, GK1, GK2
+#endif   
+!#if defined coupled_bc
+!   INTEGER:: COUPLED
+!#endif
+
 
    ! Mesh coordinate variables
 
@@ -333,6 +345,20 @@ MODULE MESH_POINTERS
 USE PRECISION_PARAMETERS
 USE MESH_VARIABLES
 IMPLICIT NONE (TYPE,EXTERNAL)
+#if defined global_mesh
+   INTEGER,POINTER :: MI, MJ, MK , GI1, GI2, GJ1, GJ2, GK1, GK2
+#endif   
+#if defined coupled_bc
+   !INTEGER:: COUPLED
+   ! North border
+   !REAL, allocatable, DIMENSION(:,:,:):: TN, BC_VN,BC_WN1,BC_WN2
+   !REAL, allocatable,  DIMENSION(:,:,:):: TE, TWBC_UE, BC_UW,BC_WE1,BC_WE2,BC_WW1,BC_WW2
+   !south border
+   !REAL, allocatable, DIMENSION(:,:,:):: TSS,BC_WS1,BC_WS2,BC_VS
+   !north border
+   !REAL, allocatable, DIMENSION(:,:,:):: TNN,BC_WN1,BC_WN2,BC_VN   
+
+#endif
 
 REAL(EB), POINTER, DIMENSION(:,:,:) :: &
    U,V,W,US,VS,WS,DDDT,D,DS,H,HS,KRES,FVX,FVY,FVZ,FVX_B,FVY_B,FVZ_B,FVX_D,FVY_D,FVZ_D,RHO,RHOS, &
@@ -662,6 +688,17 @@ KBM1=>M%KBM1
 IBP1=>M%IBP1
 JBP1=>M%JBP1
 KBP1=>M%KBP1
+#if defined global_mesh
+MI=>M%MI
+MJ=>M%MJ
+MK=>M%MK
+GI1=>M%GI1
+GI2=>M%GI2
+GJ1=>M%GJ1
+GJ2=>M%GJ2
+GK1=>M%GK1
+GK2=>M%GK2
+#endif
 N_NEIGHBORING_MESHES=>M%N_NEIGHBORING_MESHES
 NEIGHBORING_MESH=>M%NEIGHBORING_MESH
 RGB=>M%RGB

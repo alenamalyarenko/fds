@@ -1,3 +1,4 @@
+#include 'keys.h'
 MODULE PRES
 
 ! Find the perturbation pressure by solving Poisson's Equation
@@ -168,6 +169,28 @@ WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS
                CASE(3); VEL_EDDY = VT%W_EDDY(I,J)
             END SELECT
          ENDIF
+         
+         !print*, 'inside pressure loop 1' , NM
+#if defined atm_variables
+         !print*, 'inside pressure loop 2' , NM
+         !VEL_EDDY = 0._EB
+         IF (VT%N_EDDY<0) THEN
+         !IF (COUPLED_ATM_BOUNDARY) THEN
+         !print*, 'inside pressure loop 3' , NM
+            SELECT CASE((VT%IOR))
+               !TAKE EDDY VALUES AND ADD COUPLED TO HAVE COUPLED+SEM
+               CASE(1); VEL_EDDY = VEL_EDDY + VT%UW_ATM(J,K)
+               CASE(-1); VEL_EDDY = VEL_EDDY + VT%UE_ATM(J,K) 
+               
+               CASE(2); VEL_EDDY = VEL_EDDY + VT%VS_ATM(I,K)
+               CASE(-2); VEL_EDDY = VEL_EDDY + VT%VN_ATM(I,K)
+               
+               CASE(-3); VEL_EDDY = VEL_EDDY + VT%WT_ATM(I,J)
+            END SELECT
+            !Print*, 'Pressure Vel_eddy', NM, VT%IOR, VEL_EDDY ! vel_eddy ~8, this is good
+         ENDIF
+         
+#endif         
 
          ICF = 0
          IF (CC_IBM) THEN
@@ -189,7 +212,14 @@ WALL_CELL_LOOP: DO IW=1,N_EXTERNAL_WALL_CELLS
             H0 = 0.5_EB*(U0**2+V0**2+W0**2)
          ENDIF
 
+!Print*, 'prescibing vel-eddy working for south border 0 ', VT%N_EDDY
+! This needs fixing
+#if defined coupled_bc
+         IF (VT%N_EDDY<0) THEN
+#else
          IF (OPEN_WIND_BOUNDARY) THEN
+#endif         
+         ! Print*, 'prescibing vel-eddy working for south border 1'
             IF (DOT_PRODUCT(BC%NVEC,(/U_WIND(K),V_WIND(K),W_WIND(K)/))<-TWO_EPSILON_EB) THEN
                H0 = 0._EB
             ELSEIF (ICF>0) THEN

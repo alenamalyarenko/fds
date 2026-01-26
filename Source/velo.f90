@@ -1,6 +1,7 @@
 !> \brief Collection of velocity routines.
 !> Computes the velocity flux terms, baroclinic torque correction terms, and performs the CFL check.
-
+#include 'keys.h'
+#include 'coupled_files.h'
 MODULE VELO
 
 USE PRECISION_PARAMETERS
@@ -12,6 +13,9 @@ IMPLICIT NONE (TYPE,EXTERNAL)
 PRIVATE
 
 PUBLIC VELOCITY_PREDICTOR,VELOCITY_CORRECTOR,NO_FLUX,BAROCLINIC_CORRECTION,MATCH_VELOCITY,MATCH_VELOCITY_FLUX,&
+#if defined coupled_bc
+      ATM_BC_COUPLED, &
+#endif
        VELOCITY_BC,COMPUTE_VISCOSITY,VISCOSITY_BC,VELOCITY_FLUX,VELOCITY_FLUX_CYLINDRICAL
 
 
@@ -1842,6 +1846,11 @@ T_USED(4)=T_USED(4)+CURRENT_TIME()-T_NOW
 END SUBROUTINE VELOCITY_CORRECTOR
 
 
+#if defined coupled_bc
+# include 'atm_bc_coupled.h'
+#endif
+
+
 !> \brief Assert tangential velocity boundary conditions
 !> \param T Current time (s)
 !> \param NM Mesh number
@@ -1872,8 +1881,11 @@ TYPE (VENTS_TYPE), POINTER :: VT
 TYPE (WALL_TYPE), POINTER :: WCM,WCP,WCX
 TYPE (BOUNDARY_PROP1_TYPE), POINTER :: WCM_B1,WCP_B1,WCX_B1
 TYPE (EDGE_TYPE), POINTER :: ED
-TYPE(SURFACE_TYPE), POINTER :: SF
-
+TYPE(SURFACE_TYPE), POINTER :: SF     
+	
+Logical:: southern, western, roof
+                                      
+                                      
 IF (SOLID_PHASE_ONLY) RETURN
 IF (PERIODIC_TEST==12) RETURN
 IF (PERIODIC_TEST==13) RETURN
@@ -1903,6 +1915,10 @@ ENDIF
 ! Loop over all cell edges and determine the appropriate velocity BCs
 
 EDGE_LOOP: DO IE=1,EDGE_COUNT(NM)
+
+#if defined coupled_debug
+!Print*, 'Start of velocity_bc', NM, 'Edge ', IE
+#endif
 
    ED => EDGE(IE)
 
@@ -2065,11 +2081,31 @@ EDGE_LOOP: DO IE=1,EDGE_COUNT(NM)
          ! Set up synthetic eddy method
 
          SYNTHETIC_EDDY_METHOD = .FALSE.
+#ifdef coupled_bc         
+         COUPLED_ATM_BOUNDARY=.FALSE.     
+         southern=.false.
+         western=.false.
+         roof=.false.
+#endif         
+!print*, 'SEM condition 0',NM, II,JJ,KK, IEC         
+!print*, 'SEM condition 1', IWM, IWP         
          IF (IWM>0 .AND. IWP>0) THEN
+!print*, 'SEM condition 2', WCM%VENT_INDEX, WCP%VENT_INDEX        	
             IF (WCM%VENT_INDEX==WCP%VENT_INDEX) THEN
                IF (WCM%VENT_INDEX>0) THEN
                   VT=>VENTS(WCM%VENT_INDEX)
-                  IF (VT%N_EDDY>0) SYNTHETIC_EDDY_METHOD=.TRUE.
+                  IF (VT%N_EDDY>0) SYNTHETIC_EDDY_METHOD=.TRUE.  
+#ifdef coupled_bc                  
+                  IF (VT%N_EDDY<0) COUPLED_ATM_BOUNDARY=.TRUE. 
+                  !Print*, 'Coupled BC activated'	
+                  IF (VT%IOR==2) southern=.TRUE.   
+                  IF (VT%IOR==-2) southern=.false.  
+                  !
+                  IF (VT%IOR==1) western=.TRUE.   
+                  IF (VT%IOR==-1) western=.false. 	
+                  !
+                  IF (VT%IOR==-3) roof=.TRUE.                 		             
+#endif                  	
                ENDIF
             ENDIF
          ENDIF
@@ -2133,6 +2169,130 @@ EDGE_LOOP: DO IE=1,EDGE_COUNT(NM)
                   END SELECT
             END SELECT IS_SELECT_1
          ENDIF SYNTHETIC_EDDY_IF_1
+         
+#if defined atm_variables
+!Print*, 'start of _atm in velocity_bc', NM, VEL_EDDY
+!Print*, VT%N_EDDY
+          IF (COUPLED_ATM_BOUNDARY) THEN
+        ! IF (VT%N_EDDY<0) THEN	
+            IS_SELECT_2: SELECT CASE(IS) ! unsigned vent orientation
+               CASE(1) ! yz plane
+                  if (western) then  
+                    SELECT CASE(IEC) ! edge orientation
+                       CASE(2) 
+                          !print*, 'check 1-2 w'
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             U_WIND_LOC = 0.5_EB*(U_WIND(KK)+U_WIND(KK+1))
+                             W_WIND_LOC = 0.5_EB*(W_WIND(KK)+W_WIND(KK+1))
+                          ENDIF
+                          
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%UW_ATM(JJ,KK)+VT%UW_ATM(JJ,KK+1)) + U_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%WW_ATM(JJ,KK)+VT%WW_ATM(JJ,KK+1)) + W_WIND_LOC
+                       CASE(3)   
+                          !print*, 'check 1-3 w'
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             V_WIND_LOC = V_WIND(KK)
+                             U_WIND_LOC = U_WIND(KK)
+                          ENDIF   
+                          
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%VW_ATM(JJ,KK)+VT%VW_ATM(JJ+1,KK)) + V_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%UW_ATM(JJ,KK)+VT%UW_ATM(JJ+1,KK)) + U_WIND_LOC
+                    END SELECT   
+                  else !eastern 
+                    SELECT CASE(IEC) ! edge orientation
+                       CASE(2) 
+                          !print*, 'check 1-2 e'
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             U_WIND_LOC = 0.5_EB*(U_WIND(KK)+U_WIND(KK+1))
+                             W_WIND_LOC = 0.5_EB*(W_WIND(KK)+W_WIND(KK+1))
+                          ENDIF
+                          
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%UE_ATM(JJ,KK)+VT%UE_ATM(JJ,KK+1)) + U_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%WE_ATM(JJ,KK)+VT%WE_ATM(JJ,KK+1)) + W_WIND_LOC
+                       CASE(3)   
+                          !print*, 'check 1-3 e'
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             V_WIND_LOC = V_WIND(KK)
+                             U_WIND_LOC = U_WIND(KK)
+                          ENDIF   
+                          
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%VE_ATM(JJ,KK)+VT%VE_ATM(JJ+1,KK)) + V_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%UE_ATM(JJ,KK)+VT%UE_ATM(JJ+1,KK)) + U_WIND_LOC
+                    END SELECT 
+                  endif	  
+               CASE(2) ! zx plane ! this loop for south/north coupled border 
+                  if (southern) then                   
+                    SELECT CASE(IEC)
+                       CASE(3)      
+                        !print*, 'check 2-3 s' , ICD, II,KK
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             V_WIND_LOC = V_WIND(KK)
+                             U_WIND_LOC = U_WIND(KK)
+                          ENDIF      
+                         
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%VS_ATM(II,KK)+VT%VS_ATM(II+1,KK)) + V_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%US_ATM(II,KK)+VT%US_ATM(II+1,KK)) + U_WIND_LOC
+                       CASE(1)   
+                        !print*, 'check 2-1 s' , ICD, II,KK
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             W_WIND_LOC = 0.5_EB*(W_WIND(KK)+W_WIND(KK+1))
+                             V_WIND_LOC = 0.5_EB*(V_WIND(KK)+V_WIND(KK+1))
+                          ENDIF      
+                          
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%WS_ATM(II,KK)+VT%WS_ATM(II,KK+1)) + W_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%VS_ATM(II,KK)+VT%VS_ATM(II,KK+1)) + V_WIND_LOC
+                    END SELECT  
+                  else   ! northern
+                  	SELECT CASE(IEC)
+                       CASE(3)      
+                        !print*, 'check 2-3 N' , ICD, II,KK
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             V_WIND_LOC = V_WIND(KK)
+                             U_WIND_LOC = U_WIND(KK)
+                          ENDIF      
+                         
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%VN_ATM(II,KK)+VT%VN_ATM(II+1,KK)) + V_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%UN_ATM(II,KK)+VT%UN_ATM(II+1,KK)) + U_WIND_LOC
+                       CASE(1)   
+                       !print*, 'check 2-1 N' , ICD, II,KK
+                          IF (OPEN_WIND_BOUNDARY) THEN
+                             W_WIND_LOC = 0.5_EB*(W_WIND(KK)+W_WIND(KK+1))
+                             V_WIND_LOC = 0.5_EB*(V_WIND(KK)+V_WIND(KK+1))
+                          ENDIF      
+                          IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%WN_ATM(II,KK)+VT%WN_ATM(II,KK+1)) + W_WIND_LOC
+                          IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%VN_ATM(II,KK)+VT%VN_ATM(II,KK+1)) + V_WIND_LOC
+                    END SELECT  
+                  endif   
+                  
+               CASE(3) ! xy plane
+               if (roof) then
+                  SELECT CASE(IEC)
+                     CASE(1)   
+                        !print*, 'check 3-1 Roof', II,JJ,KK
+                        IF (OPEN_WIND_BOUNDARY) THEN
+                           W_WIND_LOC = W_WIND(KK)
+                           V_WIND_LOC = V_WIND(KK)
+                        ENDIF  
+                        IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%WT_ATM(II,JJ)+VT%WT_ATM(II,JJ+1)) + W_WIND_LOC
+                        IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%VT_ATM(II,JJ)+VT%VT_ATM(II,JJ+1)) + V_WIND_LOC
+                     CASE(2)    
+                        !print*, 'check 3-2 Roof', II,JJ,KK
+                        IF (OPEN_WIND_BOUNDARY) THEN
+                           U_WIND_LOC = U_WIND(KK)
+                           W_WIND_LOC = W_WIND(KK)
+                        ENDIF     
+                        IF (ICD==1) VEL_EDDY = 0.5_EB*(VT%UT_ATM(II,JJ)+VT%UT_ATM(II+1,JJ)) + U_WIND_LOC    
+                        IF (ICD==2) VEL_EDDY = 0.5_EB*(VT%WT_ATM(II,JJ)+VT%WT_ATM(II+1,JJ)) + W_WIND_LOC        
+                        	
+                  END SELECT
+                 endif 
+                  
+                  
+            END SELECT IS_SELECT_2
+         ENDIF
+
+#endif         
+         
 
          ! OPEN boundary conditions, both varieties, with and without a wind
 
@@ -2224,6 +2384,9 @@ EDGE_LOOP: DO IE=1,EDGE_COUNT(NM)
 
          ENDIF OPEN_AND_WIND_BC
 
+#if defined coupled_debug         
+!Print*, 'end of open_and_wind_bc',  NM
+#endif
          ! Define the appropriate gas and ghost velocity
 
          IF (ICD==1) THEN ! Used to pick the appropriate velocity component
@@ -2563,6 +2726,12 @@ EDGE_LOOP: DO IE=1,EDGE_COUNT(NM)
    ENDDO SIGN_LOOP_2
 
 ENDDO EDGE_LOOP
+
+#if defined coupled_debug
+Print*, 'end of velocity_bc',  NM
+#endif
+
+
 
 T_USED(4)=T_USED(4)+CURRENT_TIME()-T_NOW
 

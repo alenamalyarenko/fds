@@ -1,11 +1,12 @@
 #ifndef GITHASH_PP
 #define GITHASH_PP "unknown"
 #endif
-
+#include 'keys.h'
 !> \brief Routines for handling output
 
 MODULE DUMP
 
+USE NETCDF
 USE PRECISION_PARAMETERS
 USE MESH_VARIABLES
 USE GLOBAL_CONSTANTS
@@ -88,6 +89,14 @@ INTEGER, INTENT(IN) :: NM
 CHARACTER(80) :: FN_UVW,FN_MMS,FN_SPECTRUM,FN_TMP,FN_SPEC
 
 TNOW = CURRENT_TIME()
+
+#if defined write_init
+! init cond dump
+IF (T==0) THEN
+   CALL DUMP_SLCF(T,DT,NM,1)
+ENDIF
+#endif
+
 
 IF (T>=PART_CLOCK(PART_COUNTER(NM)) .AND. PARTICLE_FILE) THEN
    CALL DUMP_PART(T,NM)
@@ -360,6 +369,11 @@ ALLOCATE(LU_XYZ(NMESHES))
 ALLOCATE(FN_PL3D(2*NMESHES))
 ALLOCATE(LU_PL3D(2*NMESHES))
 
+#if defined output_nc
+ALLOCATE(FN_PL3D1(2*NMESHES))
+ALLOCATE(LU_PL3D1(2*NMESHES))
+#endif
+
 ALLOCATE(FN_ISOF(N_ISOF,NMESHES))
 ALLOCATE(LU_ISOF(N_ISOF,NMESHES))
 ALLOCATE(FN_ISOF2(N_ISOF,NMESHES))
@@ -405,8 +419,19 @@ MESH_LOOP: DO NM=1,NMESHES
 
    LU_XYZ(NM)  = GET_FILE_NUMBER()
    LU_PL3D(NM) = GET_FILE_NUMBER()
-   LU_PL3D(NM+NMESHES) = GET_FILE_NUMBER()
-   WRITE(FN_XYZ(NM),'(A,A,I0,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'.xyz'
+   LU_PL3D(NM+NMESHES) = GET_FILE_NUMBER() 
+#if defined output_nc
+   LU_PL3D1(NM) = GET_FILE_NUMBER()          
+   LU_PL3D1(NM+NMESHES) = GET_FILE_NUMBER()  
+
+#endif   
+   
+!#if defined output_nc     
+!    WRITE(FN_XYZ(NM),'(A,A,I0,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'.xyz.nc'
+!#endif    
+    WRITE(FN_XYZ(NM),'(A,A,I0,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'.xyz'
+!#endif    
+   
 
    ! Iso Surface Files
 
@@ -891,6 +916,12 @@ INTEGER :: CC_VAL,NSTEPS
 INTEGER :: SMOKE3D_16_COMPRESS, SMOKE3D_16_VERSION
 TYPE (BOUNDARY_COORD_TYPE), POINTER :: BC
 TYPE (RAD_FILE_TYPE), POINTER :: RF
+
+ INTEGER:: status, dimid1, dimid2,dimid3, varid1,varid2,varid3,varid4
+#if defined global_mesh
+INTEGER:: dimid4, varid5,varid6,varid7,varid8,varid9
+INTEGER:: varid10,varid11,varid12,varid13
+#endif 
 
 TNOW=CURRENT_TIME()
 
@@ -5659,6 +5690,11 @@ REAL(FB) :: UVEL, VVEL, WVEL, VEL, PLOT3D_MIN, PLOT3D_MAX
 INTEGER :: DEBUG
 INTEGER :: IERROR
 
+
+INTEGER::status, dimid1,dimid2,dimid3, dimid1c,dimid2c,dimid3c,dimid1c2,dimid2c2,dimid3c2, NF_NOERR
+INTEGER:: varid1, varid2,varid3,varid4,varid5
+INTEGER:: varid12, varid22,varid32,varid42,varid52
+
 ! Return if there are no slices to process and this is not a Plot3D dump
 
 DRY=.FALSE.
@@ -5724,7 +5760,10 @@ IF (PLOT3D) THEN  ! Write out information to .smv file
       ITM = ITM+1
       ITM1 = 0
    ENDIF
-   WRITE(FN_PL3D(NM),'(A,A,I0,A,I0,A,I2.2,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'_',ITM,'p',ITM1,'.q'
+#if defined output_nc
+   WRITE(FN_PL3D1(NM),'(A,A,I0,A,I0,A,I2.2,A)') TRIM(CHID),'_',NM,'_',ITM,'p',ITM1,'.q.nc'
+#endif  
+   WRITE(FN_PL3D(NM),'(A,A,I0,A,I0,A,I2.2,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'_',ITM,'p',ITM1,'.q'   
    WRITE(FN_PL3D(NM+NMESHES),'(A,A,I0,A,I0,A,I2.2,A)') TRIM(RESULTS_DIR)//TRIM(CHID),'_',NM,'_',ITM,'p',ITM1,'.q.bnd'
    IF (N_STRINGS+17>N_STRINGS_MAX) THEN
       CALL RE_ALLOCATE_STRINGS(NM)
@@ -6049,6 +6088,82 @@ ENDDO QUANTITY_LOOP
 ! Write out the PLOT3D ``q'' file
 
 IF (PLOT3D) THEN
+#if defined output_nc   
+
+
+   status = nf90_create(FN_PL3D1(NM), NF90_CLOBBER, LU_PL3D1(NM))
+   status = nf90_def_dim(LU_PL3D1(NM),"x",IBP1,dimid1)
+   status = nf90_def_dim(LU_PL3D1(NM),"y",JBP1,dimid2)
+   status = nf90_def_dim(LU_PL3D1(NM),"z",KBP1,dimid3)
+   
+   status = nf90_def_dim(LU_PL3D1(NM),"xc",IBAR,dimid1c)
+   status = nf90_def_dim(LU_PL3D1(NM),"yc",JBAR,dimid2c)
+   status = nf90_def_dim(LU_PL3D1(NM),"zc",KBAR,dimid3c)
+   
+   status = nf90_def_dim(LU_PL3D1(NM),"xc2",IBAR+2,dimid1c2)
+   status = nf90_def_dim(LU_PL3D1(NM),"yc2",JBAR+2,dimid2c2)
+   status = nf90_def_dim(LU_PL3D1(NM),"zc2",KBAR+2,dimid3c2)
+   
+   
+!   status = nf90_def_var(LU_PL3D(NM),"temp",   NF90_FLOAT, (/dimid1c,dimid2c,dimid3c/),varid1)
+!   status = nf90_def_var(LU_PL3D(NM),"u",      NF90_FLOAT, (/dimid1,dimid2c,dimid3c/),varid2)
+!   status = nf90_def_var(LU_PL3D(NM),"v",      NF90_FLOAT, (/dimid1c,dimid2,dimid3c/),varid3)
+!   status = nf90_def_var(LU_PL3D(NM),"w",      NF90_FLOAT, (/dimid1c,dimid2c,dimid3/),varid4)
+!   status = nf90_def_var(LU_PL3D(NM),"hrrpuv", NF90_FLOAT, (/dimid1c,dimid2c,dimid3c/),varid5)
+   
+   status = nf90_def_var(LU_PL3D1(NM),"temp_a",   NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid12)
+   status = nf90_def_var(LU_PL3D1(NM),"u_a",      NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid22)
+   status = nf90_def_var(LU_PL3D1(NM),"v_a",      NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid32)
+   status = nf90_def_var(LU_PL3D1(NM),"w_a",      NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid42)
+   status = nf90_def_var(LU_PL3D1(NM),"hrrpuv_a", NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid52)
+   
+   
+   status = nf90_enddef(LU_PL3D1(NM))
+!   status = nf90_put_var(LU_PL3D(NM),varid1,QQ(1:IBAR,1:JBAR,1:KBAR,1)) !T
+!   status = nf90_put_var(LU_PL3D(NM),varid2,QQ(0:IBAR,1:JBAR,1:KBAR,2)) !u
+!   status = nf90_put_var(LU_PL3D(NM),varid3,QQ(1:IBAR,0:JBAR,1:KBAR,3)) !v
+!   status = nf90_put_var(LU_PL3D(NM),varid4,QQ(1:IBAR,1:JBAR,0:KBAR,4)) !w
+!   status = nf90_put_var(LU_PL3D(NM),varid5,QQ(1:IBAR,1:JBAR,1:KBAR,5)) !HRR      
+   
+   status = nf90_put_var(LU_PL3D1(NM),varid12,  MESHES(NM)%TMP(0:IBP1,0:JBP1,0:KBP1) - 273.15)    
+   status = nf90_put_var(LU_PL3D1(NM),varid22,  MESHES(NM)%U(0:IBP1,0:JBP1,0:KBP1))      
+   status = nf90_put_var(LU_PL3D1(NM),varid32,  MESHES(NM)%V(0:IBP1,0:JBP1,0:KBP1))      
+   status = nf90_put_var(LU_PL3D1(NM),varid42,  MESHES(NM)%W(0:IBP1,0:JBP1,0:KBP1))      
+   !status = nf90_put_var(LU_PL3D1(NM),varid52,  MESHES(NM)%Q(0:IBP1,0:JBP1,0:KBP1)*0.001_EB)    !  Q(II,JJ,KK)*0.001_EB
+   
+   status = nf90_put_var(LU_PL3D1(NM),varid52,  QQ(0:IBP1,0:JBP1,0:KBP1,5) )    ! test precision of this 
+   
+  ! status = nf90_put_var(LU_PL3D(NM),varid12,QQ(0:IBP1,0:JBP1,0:KBP1,1)) 
+  ! status = nf90_put_var(LU_PL3D(NM),varid22,QQ(0:IBP1,0:JBP1,0:KBP1,2)) 
+  ! status = nf90_put_var(LU_PL3D(NM),varid32,QQ(0:IBP1,0:JBP1,0:KBP1,3))
+  ! status = nf90_put_var(LU_PL3D(NM),varid42,QQ(0:IBP1,0:JBP1,0:KBP1,4)) 
+
+ !  status = nf90_def_var(LU_PL3D(NM),"temp_a",   NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid12)   
+ !  status = nf90_def_var(LU_PL3D(NM),"u_a",      NF90_FLOAT, (/dimid1,dimid2c2,dimid3c2/),varid22)     
+ !  status = nf90_def_var(LU_PL3D(NM),"v_a",      NF90_FLOAT, (/dimid1c2,dimid2,dimid3c2/),varid32)     
+ !  status = nf90_def_var(LU_PL3D(NM),"w_a",      NF90_FLOAT, (/dimid1c2,dimid2c2,dimid3c2/),varid42)   
+ !  status = nf90_put_var(LU_PL3D(NM),varid12,MESHES(NM)%TMP(0:IBP1,0:JBP1,0:KBP1))  !22,22,22
+ !  status = nf90_put_var(LU_PL3D(NM),varid22,MESHES(NM)%U(0:IBAR,1:JBAR,1:KBAR))    !21,20,20
+ !  status = nf90_put_var(LU_PL3D(NM),varid32,MESHES(NM)%V(1:IBAR,0:JBAR,1:KBAR))    !20,21,20 
+ !  status = nf90_put_var(LU_PL3D(NM),varid42,MESHES(NM)%W(0:IBP1,0:JBP1,0:KBP1))    !22,22,22 
+   
+
+
+
+
+
+
+  
+   
+   status = nf90_close(LU_PL3D1(NM))   
+   
+   !IF (STATUS .NE. NF_NOERR) then
+   !   print *, trim(nf90_strerror(status))
+   !   stop "Stopped"
+   !end if
+   
+#endif !normal output  
+
    ZERO = 0._EB
    WRITE(LU_PL3D(NM)) IBP1,JBP1,KBP1
    WRITE(LU_PL3D(NM)) ZERO,ZERO,ZERO,ZERO

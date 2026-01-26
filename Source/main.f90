@@ -1,6 +1,6 @@
 !> \brief Fire Dynamics Simulator (FDS) is a computational fluid dynamics (CFD) code designed to model
 !> fire and other thermal phenomena.
-
+#include 'keys.h'
 PROGRAM FDS
 
 USE PRECISION_PARAMETERS
@@ -338,6 +338,14 @@ DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
    IF (UVW_RESTART)  CALL UVW_INIT(NM,CSVFINFO(NM)%UVWFILE)
    IF (TMP_RESTART)  CALL TMP_INIT(NM,CSVFINFO(NM)%TMPFILE)
    IF (SPEC_RESTART) CALL SPEC_INIT(NM,CSVFINFO(NM)%SPECFILE)
+#if defined init_t_in   
+   CALL TEMP_INIT_NC(NM)  
+#endif  
+
+#if defined init_u_in
+   CALL UVW_INIT_NC(NM) 
+#endif
+ 
 ENDDO
 
 ! Init centroid data (i.e. rho,zz) on cut-cells, cut-faces and CFACEs.
@@ -366,6 +374,18 @@ DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
    IF (TGA_SURF_INDEX>0) CYCLE
    CALL MATCH_VELOCITY(NM)
    CALL COMPUTE_VISCOSITY(T_BEGIN,NM,APPLY_TO_ESTIMATED_VARIABLES=.FALSE.) ! call again after mesh exchange
+
+
+#if defined coupled_bc
+# ifdef coupled_debug
+IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Started ATM_BC_COUPLED') 
+# endif
+   CALL ATM_BC_COUPLED(T_BEGIN,NM)           !read and assign _ATM variables from nc files
+# ifdef coupled_debug
+IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Completed ATM_BC_COUPLED')   
+# endif
+#endif  
+  
    IF (SYNTHETIC_EDDY_METHOD) CALL SYNTHETIC_EDDY_SETUP(NM)
    CALL VISCOSITY_BC(NM,APPLY_TO_ESTIMATED_VARIABLES=.FALSE.)
    CALL VELOCITY_BC(T_BEGIN,NM,APPLY_TO_ESTIMATED_VARIABLES=.FALSE.)
@@ -433,7 +453,13 @@ IF (.NOT.RESTART) THEN
             CALL COMPUTE_RADIATION(T_BEGIN,NM,ITER)
             IF (CC_IBM) CALL CCCOMPUTE_RADIATION(T_BEGIN,NM,ITER)
          ENDIF
+#ifdef coupled_debug         
+         IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('start of first wall_BC')
+#endif         
          CALL WALL_BC(T_BEGIN,DT,NM)
+#ifdef coupled_debug         
+          IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('finish of first wall_BC')
+#endif          
       ENDDO
       IF (RADIATION .AND. EXCHANGE_RADIATION) THEN
          DO ANG_INC_COUNTER=1,ANGLE_INCREMENT
@@ -671,6 +697,9 @@ MAIN_LOOP: DO
       ENDIF
 
       ! Boundary conditions for temperature, species, and density. Start divergence calculation.
+#ifdef coupled_debug
+IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Starting wall_bc in predictor')
+#endif
 
       COMPUTE_WALL_BC_LOOP_A: DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
          CALL WALL_BC(T,DT,NM)
@@ -759,6 +788,14 @@ MAIN_LOOP: DO
    ! Apply tangential velocity boundary conditions
 
    VELOCITY_BC_LOOP: DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+#if defined coupled_bc
+      ! Apply UVW to U_eddy variables to be used in the main velocity_bc
+# ifdef coupled_debug      
+      IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Place to apply velocity bc predictor - atm_bc_coupled')
+# endif      
+      CALL ATM_BC_COUPLED(T,NM)
+#endif  
+
       IF (SYNTHETIC_EDDY_METHOD) CALL SYNTHETIC_TURBULENCE(DT,T,NM)
       CALL VELOCITY_BC(T,NM,APPLY_TO_ESTIMATED_VARIABLES=.TRUE.)
    ENDDO VELOCITY_BC_LOOP
@@ -834,6 +871,9 @@ MAIN_LOOP: DO
    ENDIF
 
    ! Particle heat and mass transfer
+#ifdef coupled_debug   
+IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Starting wall_bc in corrector')
+#endif
 
    WALL_COUNTER = WALL_COUNTER + 1
    COMPUTE_WALL_BC_2B: DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
@@ -939,6 +979,9 @@ MAIN_LOOP: DO
    ! Apply velocity boundary conditions, and update values of HRR, DEVC, etc.
 
    VELOCITY_BC_LOOP_2: DO NM=LOWER_MESH_INDEX,UPPER_MESH_INDEX
+#if defined coupled_debug
+ IF (MY_RANK==0 .AND. VERBOSE) CALL VERBOSE_PRINTOUT('Place to apply velocity bc corrector')
+#endif     
       CALL VELOCITY_BC(T,NM,APPLY_TO_ESTIMATED_VARIABLES=.FALSE.)
       CALL UPDATE_GLOBAL_OUTPUTS(T,DT,NM)
    ENDDO VELOCITY_BC_LOOP_2

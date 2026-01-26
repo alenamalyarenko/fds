@@ -1,6 +1,7 @@
 #ifndef GITHASH_PP
 #define GITHASH_PP "unknown"
 #endif
+#include 'keys.h'
 
 !> \brief Subroutines that read the various NAMELIST lines in the FDS input file
 
@@ -23,8 +24,11 @@ USE THERMO_PROPS
 
 IMPLICIT NONE (TYPE,EXTERNAL)
 PRIVATE
-
+#if defined init_file_in
+PUBLIC READ_DATA,READ_STOP,VERSION_INFO, READ_IC
+#else
 PUBLIC READ_DATA,READ_STOP,VERSION_INFO
+#endif
 
 CHARACTER(LABEL_LENGTH) :: ID,MB,DB,ODE_SOLVER
 CHARACTER(MESSAGE_LENGTH) :: MESSAGE,FYI
@@ -158,7 +162,10 @@ CALL READ_ISOF    ; CALL CHECK_STOP_STATUS ; IF (STOP_STATUS/=NO_STOP) RETURN
 CALL READ_BNDF    ; CALL CHECK_STOP_STATUS ; IF (STOP_STATUS/=NO_STOP) RETURN
 CALL READ_SM3D    ; CALL CHECK_STOP_STATUS ; IF (STOP_STATUS/=NO_STOP) RETURN
 CALL READ_RADF    ; CALL CHECK_STOP_STATUS ; IF (STOP_STATUS/=NO_STOP) RETURN
-
+#if defined init_file_in
+!here we call it without the output 
+CALL READ_IC      ; CALL CHECK_STOP_STATUS ; IF (STOP_STATUS/=NO_STOP) RETURN
+#endif
 ! Deallocate arrays if allocated
 IF (ALLOCATED(DUPLICATE_FUEL)) DEALLOCATE (DUPLICATE_FUEL)
 IF (ALLOCATED (REAC_FUEL)) DEALLOCATE (REAC_FUEL)
@@ -517,6 +524,11 @@ CHARACTER(LABEL_LENGTH) :: MULT_ID,TRNX_ID,TRNY_ID,TRNZ_ID
 NAMELIST /MESH/ CHECK_MESH_ALIGNMENT,COLOR,CYLINDRICAL,FYI,ID,IJK,MPI_PROCESS,MULT_ID,RGB,TRNX_ID,TRNY_ID,TRNZ_ID,XB
 TYPE (MESH_TYPE), POINTER :: M
 TYPE (MULTIPLIER_TYPE), POINTER :: MR
+#if defined global_mesh
+INTEGER :: II2, JJ2,KK2, NM3, NM4
+TYPE (MESH_TYPE), POINTER :: pnt, pnt2      
+real :: i1,i2,j1,j2,k1,k2
+#endif
 
 NMESHES = 0
 NMESHES_READ = 0
@@ -789,6 +801,141 @@ MESH_LOOP: DO N=1,NMESHES_READ
          ENDDO I_MULT_LOOP
       ENDDO J_MULT_LOOP
    ENDDO K_MULT_LOOP
+
+#if defined global_mesh
+   NM3=0  
+   K_MULT_LOOP2: DO KK=MR%K_LOWER,MR%K_UPPER
+      J_MULT_LOOP2: DO JJ=MR%J_LOWER,MR%J_UPPER
+         I_MULT_LOOP2: DO II=MR%I_LOWER,MR%I_UPPER
+            NM3=NM3+1
+            M => MESHES(NM3)
+
+            M%MI = II
+            M%MJ = JJ
+            M%MK = KK
+            
+            M%GK1 = 0
+            M%GK2 = 0
+            M%GI1 = 0
+            M%GI2 = 0            
+            M%GJ1 = 0
+            M%GJ2 = 0      
+            
+            IF (NM3.eq.1) THEN
+            ! we can find corner coordinates
+            	! add +1 on each side for zero and IBP1
+            	! corrected 18 July to include ghosts
+
+            M%GI1 = 0
+            M%GI2 = M%IBAR +1         
+            M%GJ1 = 0
+            M%GJ2 = M%JBAR +1
+            M%GK1 = 0
+            M%GK2 = M%KBAR  +1            
+            ENDIF
+            
+!# if defined coupled_bc            
+!            IF ((II.eq.0) .OR.(JJ.eq.0).OR.(KK.eq.0)) THEN
+!             M%COUPLED=1
+!            ELSE
+!             M%COUPLED=0
+!            ENDIF
+!# endif            
+            
+       ENDDO I_MULT_LOOP2
+      ENDDO J_MULT_LOOP2
+   ENDDO K_MULT_LOOP2
+   
+               
+  ! we need other meshes to know where this one is 
+   NM3=0
+   K_MULT_LOOP3: DO KK=MR%K_LOWER,MR%K_UPPER
+    J_MULT_LOOP3: DO JJ=MR%J_LOWER,MR%J_UPPER
+     I_MULT_LOOP3: DO II=MR%I_LOWER,MR%I_UPPER
+      NM3=NM3+1           
+      pnt => MESHES(NM3)
+      IF (NM3>1) THEN
+
+       !corrected 18 July 2025 to match coupled_glue_meshed which I trust ?!
+       i1=0
+       i2=1
+       j1=0
+       j2=1
+       k1=0
+       k2=1
+
+       DO KK2=(MR%K_LOWER),pnt%MK  
+        DO JJ2=(MR%J_LOWER),pnt%MJ
+         DO II2=(MR%I_LOWER),pnt%MI                
+          !previos mesh number based on loop:
+          !KK*9+JJ*3 + (II+1)=KK*(I_UPPER+1)*(J_UPPER+1)  JJ*(I_UPPER+1) + (II+1)
+             
+          NM4=KK2*(MR%I_UPPER +1)*(MR%J_UPPER +1)+JJ2*(MR%I_UPPER +1) + (II2+1)
+          pnt2 => MESHES(NM4)
+          IF (NM4.le.NM3) THEN
+          
+           IF ((pnt2%MI .eq. pnt%MI ).AND.(pnt2%MJ .lt. pnt%MJ ))  THEN
+           j1=j1 + pnt2%JBAR
+           j2=j2 + pnt2%JBAR
+           !j1=j1 + pnt2%JBP1
+           !j2=j2 + pnt2%JBP1
+           ENDIF
+           IF ((pnt2%MI .eq. pnt%MI ).AND.(pnt2%MJ .eq. pnt%MJ ))  THEN
+            j2 = j2 + pnt2%JBAR
+            !j2 = j2 + pnt2%JBP1
+           ENDIF
+           IF ((pnt2%MJ .eq. pnt%MJ ).AND.(pnt2%MI .lt. pnt%MI ))  THEN
+            i1 = i1 + pnt2%IBAR
+            i2 = i2 + pnt2%IBAR
+            !i1 = i1 + pnt2%IBP1
+            !i2 = i2 + pnt2%IBP1
+           ENDIF
+           IF ((pnt2%MJ .eq. pnt%MJ ).AND.(pnt2%MI .eq. pnt%MI ))  THEN
+            i2 = i2 + pnt2%IBAR
+            !i2 = i2 + pnt2%IBP1
+           ENDIF
+           IF ((pnt2%MI .eq. pnt%MI ).AND. (pnt2%MJ .eq. pnt%MJ ).AND. &
+               (pnt2%MK .lt. pnt%MK )) THEN
+            k1 = k1 + pnt2%KBAR
+            k2 = k2 + pnt2%KBAR
+            !k1 = k1 + pnt2%KBP1
+            !k2 = k2 + pnt2%KBP1
+           ENDIF
+           IF ((pnt2%MI .eq. pnt%MI ).AND. (pnt2%MJ .eq. pnt%MJ ).AND. &
+               (pnt2%MK .eq. pnt%MK )) THEN
+            k2 = k2 + pnt2%KBAR
+            !k2 = k2 + pnt2%KBP1
+           ENDIF       
+           
+
+           
+           
+           pnt%GI1 = i1
+           pnt%GI2 = i2              
+           pnt%GJ1 = j1
+           pnt%GJ2 = j2
+           pnt%GK1 = k1
+           pnt%GK2 = k2              
+          ENDIF
+         ENDDO
+        ENDDO
+       ENDDO !end of NM4 loops             
+      ENDIF  !if NM3>1
+      
+#if defined vent_debug
+!print*, 'set up global mesh', NM3, pnt%GI1, pnt%GI2,pnt%GJ1,pnt%GJ2,pnt%GK1,pnt%GK2  
+#endif
+
+     
+      
+     ENDDO I_MULT_LOOP3
+    ENDDO J_MULT_LOOP3
+   ENDDO K_MULT_LOOP3
+
+#endif 
+
+
+
 
 ENDDO MESH_LOOP
 
@@ -2004,7 +2151,7 @@ END SUBROUTINE READ_MISC
 !> \brief Read the WIND namelist line
 
 SUBROUTINE READ_WIND
-
+use netcdf
 USE MATH_FUNCTIONS, ONLY: GET_RAMP_INDEX,NORMAL,RANDOM_WIND_FLUCTUATIONS
 USE PHYSICAL_FUNCTIONS, ONLY: MONIN_OBUKHOV_SIMILARITY,MONIN_OBUKHOV_STABILITY_CORRECTIONS
 REAL(EB) :: CORIOLIS_VECTOR(3)=0._EB,FORCE_VECTOR(3)=0._EB,L,ZZZ,ZETA,Z_0,SPEED,DIRECTION,&
@@ -2014,7 +2161,8 @@ CHARACTER(LABEL_LENGTH) :: RAMP_PGF_T,RAMP_FVX_T,RAMP_FVY_T,RAMP_FVZ_T,RAMP_TMP0
                            RAMP_DIRECTION_T,RAMP_DIRECTION_Z,RAMP_SPEED_T,RAMP_SPEED_Z
 TYPE(RESERVED_RAMPS_TYPE), POINTER :: RRP,RRPX
 INTEGER, PARAMETER :: N_MO_PTS=51 ! number of Monin-Obukhov ramp points
-
+integer:: ncid, varid1,varid2,status
+integer :: ndims_in, nvars_in, ngatts_in, unlimdimid_in
 NAMELIST /WIND/ CORIOLIS_VECTOR,DIRECTION,FORCE_VECTOR,FYI,GEOSTROPHIC_WIND,GROUND_LEVEL,INITIAL_SPEED,L,LAPSE_RATE,LATITUDE,&
                 PRESSURE_GRADIENT_FORCE,RAMP_DIRECTION_T,RAMP_DIRECTION_Z,&
                 RAMP_PGF_T,RAMP_FVX_T,RAMP_FVY_T,RAMP_FVZ_T,RAMP_SPEED_T,RAMP_SPEED_Z,RAMP_TMP0_Z,&
@@ -11286,6 +11434,15 @@ MESH_LOOP_1: DO NM=1,NMESHES
                VT%Z1_ORIG = XB_USER(5)
                VT%Z2_ORIG = XB_USER(6)
 
+#if defined global_mesh
+               VT%GI1 = I1 + MESHES(NM)%GI1
+               VT%GI2 = I2 + MESHES(NM)%GI1
+               VT%GJ1 = J1 + MESHES(NM)%GJ1
+               VT%GJ2 = J2 + MESHES(NM)%GJ1
+               VT%GK1 = K1 + MESHES(NM)%GK1
+               VT%GK2 = K2 + MESHES(NM)%GK1
+#endif
+
                ! Vent area
 
                IF (ABS(XB_USER(1)-XB_USER(2))<=SPACING(XB_USER(2))) &
@@ -11435,6 +11592,19 @@ MESH_LOOP_1: DO NM=1,NMESHES
                      CALL SHUTDOWN(MESSAGE,PROCESS_0_ONLY=.FALSE.) ; RETURN
                   ENDIF
                ENDIF
+
+#if defined atm_variables
+               IF (N_EDDY<0) THEN
+                COUPLED_ATM_BOUNDARY = .TRUE.    
+                !print*, 'coupled_atm_boundary in VENT ' , COUPLED_ATM_BOUNDARY         
+               ENDIF
+#endif         
+
+#if defined vent_debug
+							 print*, 'reading coupled vents in mesh', NM, 'N_VENT ', N_VENT,  VT%I1,  VT%I2, VT%GI1, VT%GI2
+							 !VT%J1,  VT%J2,  VT%K1,  VT%K2    
+#endif      
+
 
                ! Check if the VENT is attached to a specific OBST
 
@@ -15723,5 +15893,29 @@ DUMMY(1:N1) = HT3D_OBST(1:N1)
 CALL MOVE_ALLOC(DUMMY,HT3D_OBST)
 
 END SUBROUTINE REALLOCATE_HT3D_OBST
+
+#if defined init_file_in
+SUBROUTINE READ_IC
+use coupled_files
+
+integer:: N_iccd
+
+NAMELIST /ICCD/ OBFile, ICFile, recSpacing
+                
+
+REWIND(LU_INPUT) ; INPUT_FILE_LINE_NUMBER = 0
+COUNT_IC_LOOP: DO
+   CALL CHECKREAD('ICCD',LU_INPUT,IOS)  ; IF (STOP_STATUS==SETUP_STOP) RETURN
+   IF (IOS==1) EXIT COUNT_IC_LOOP
+   READ(LU_INPUT,NML=ICCD,END=9,ERR=10,IOSTAT=IOS)
+   N_iccd = N_iccd + 1
+   10 IF (IOS>0) THEN
+      WRITE(MESSAGE,'(A,I0,A,I0)') 'ERROR(101): Problem with ICCD number ',N_iccd,', line number ',INPUT_FILE_LINE_NUMBER
+      CALL SHUTDOWN(MESSAGE) ; RETURN
+      ENDIF
+ENDDO COUNT_IC_LOOP
+9 REWIND(LU_INPUT) ; INPUT_FILE_LINE_NUMBER = 0
+end subroutine read_ic
+#endif
 
 END MODULE READ_INPUT
